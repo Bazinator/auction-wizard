@@ -1,4 +1,4 @@
-```markdown
+
 # Auction Wizard
 
 Auction Wizard is a CS:GO skin sniping prototype. Users could set custom filters (price, float, market name) for CS:GO Empire listings, receive matches, and (in future plans) fully automate sniping and purchasing.
@@ -32,9 +32,7 @@ flowchart TD
   APIService --> MongoDB
   Frontend --> APIService
 ```
-
 ---
-
 ## Tech Stack
 
 - Frontend: React, Next.js, Tailwind CSS
