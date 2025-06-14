@@ -3,8 +3,6 @@
 
 Auction Wizard is a CS:GO skin sniping prototype. Users could set custom filters (price, float, market name) for CS:GO Empire listings, receive matches, and (in future plans) fully automate sniping and purchasing.
 
----
-
 ## Features
 
 - Real-time WebSocket data from CS:GO Empire
@@ -14,8 +12,6 @@ Auction Wizard is a CS:GO skin sniping prototype. Users could set custom filters
   - Float range
 - Live match detection and frontend display
 - Planned (not implemented): auto-bidding, auto-withdraw, multi-market price comparison
-
----
 
 ## Architecture
 
@@ -32,34 +28,33 @@ flowchart TD
   APIService --> MongoDB
   Frontend --> APIService
 ```
----
+
 ## Tech Stack
 
-- Frontend: React, Next.js, Tailwind CSS
+- Frontend: React, Next.js
 - Backend: Node.js, Express, Mongoose
 - Database: MongoDB
 - WebSocket Feed: CS:GO Empire
 
----
 
 ## Development Setup
 
 ```bash
 git clone <repo-url>
-cd backend && npm install
-cd ../frontend && npm install
+cd /auction-wizard-backend && npm install
+cd auction-wizard-fronted && npm install
 ```
 
 Set environment variables for MongoDB and API URLs.
-
+The MongoDB is current set to run locally, so MongoDB must be installed on the system.
 Run servers:
 
 ```bash
 # Backend
-cd backend && npm run dev
+cd auction-wizard-backend && npm start
 
 # Frontend
-cd frontend && npm run dev
+cd auction-wizard/fronted && npm start
 ```
 
 Frontend runs at `http://localhost:3000`
@@ -69,19 +64,20 @@ Frontend runs at `http://localhost:3000`
 ## Screenshots
 
 ### Sniper Filter Setup
-![Sniper](./docs/frontendsniper.png)
+![frontendsniper](https://github.com/user-attachments/assets/8d46330b-f68a-4ae8-8fca-2fca23e6c4a8)
 
 ### Match Found
-![Match](./docs/frontendsnipershowingmatch.png)
+![frontendsnipershowingmatch](https://github.com/user-attachments/assets/8d1dd396-4ce9-433a-95a9-49d137706125)
 
 ### Project Overview
-![Flow](./docs/projectoverviewflow.png)
+![projectoverviewflow](https://github.com/user-attachments/assets/439b27eb-ddf7-4328-b44c-84c06b7e48e7)
 
 ### Homepage
-![Homepage](./docs/frontendhomepage.png)
+![frontendhomepage](https://github.com/user-attachments/assets/01653b46-ae1f-4da4-9d6c-3f92cbdeebca)
 
 ### Login
-![Login](./docs/frontendlogin.png)
+![frontendlogin](https://github.com/user-attachments/assets/eb18a4b6-6568-4261-a17c-47a22ace77c7)
+
 
 ---
 
