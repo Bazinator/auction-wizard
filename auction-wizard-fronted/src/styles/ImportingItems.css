@@ -1,0 +1,310 @@
+/* Reset some defaults */
+body,
+h1,
+h2,
+h3,
+h4,
+h5,
+p {
+  margin: 0;
+  padding: 0;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Define a colorway */
+:root {
+  --primary-color: #000000;
+  --header-color: #6e6d6ead;
+  --secondary-color: #5e2950d3;
+  --highlight-color: #2c2c2c;
+  --light-color: #e2e8f0;
+  --dark-color: #000000;
+  --card-color: rgb(31, 31, 31);
+}
+.app-header {
+  position: relative; /* Add position relative to enable positioning of child elements */
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  background: var(--highlight-color);
+  margin-bottom: 20px;
+  border-radius: 5px;
+  height: 80px;
+}
+
+.header-logo {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  left: 20px;
+  width: 100px; /* Adjust the width as needed */
+  height: auto; /* Maintain the aspect ratio of the image */
+}
+
+.app-header h1 {
+  color: rgb(255, 255, 255);
+  padding-left: 45%;
+}
+
+/* Buttons container */
+.filter-buttons {
+  display: flex;
+  align-items: center;
+  padding-left: 20px;
+}
+
+/* Search bar styles */
+.filter-buttons .search-bar {
+  padding: 10px;
+  border: none;
+  border-radius: 5px;
+  width: 125px;
+  padding-left: 10px;
+}
+
+/* Button styles */
+.filter-buttons button {
+  margin-left: 10px;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 5px;
+  background-color: var(--highlight-color);
+  color: var(--light-color);
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+  text-transform: uppercase;
+}
+
+button:hover {
+  background-color: rgba(119, 78, 216, 0.5);
+}
+
+button:active {
+  transform: scale(0.98);
+}
+
+.filter-inputs {
+  display: flex;
+  gap: 10px;
+}
+
+.filter-inputs label {
+  margin-left: 10px;
+  padding: 10px 10px;
+  border: none;
+  border-radius: 5px;
+  background-color: var(--highlight-color);
+  color: var(--light-color);
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+}
+
+.filter-inputs input[type='number'] {
+  padding: 4px;
+  border: none;
+  border-radius: 4px;
+  width: 100px;
+  font-size: 16px;
+  background-color: #ffffff;
+  color: #444;
+}
+
+body {
+  background-color: var(--dark-color);
+  color: var(--light-color);
+}
+
+/* App styles */
+.app {
+  display: flex;
+  flex-direction: column;
+  text-align: center;
+  min-height: 100vh;
+  padding: 20px;
+  box-sizing: border-box;
+  width: 100%;
+}
+/* Grid for prices */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-gap: 20px;
+  width: 100%;
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+/* New Card Styles */
+.card-image-container {
+  background-color: var(--secondary-color);
+  padding: 10px;
+  height: 130px;
+  border-bottom: 2px solid var(--light-color);
+  border-radius: 5px;
+  position: relative;
+}
+
+.float-info {
+  position: absolute;
+  top: 120px;
+  left: 5px;
+  color: var(--light-color);
+  font-size: 0.7rem;
+  background: rgba(0, 0, 0, 0.404);
+  padding: 5px 5px;
+  border-radius: 5px;
+}
+
+.card-itemname {
+  position: relative;
+  top: 0px;
+  left: 0px;
+  color: var(--light-color);
+  font-size: 0.7rem;
+  padding: 5px 5px;
+  border-radius: 5px;
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+}
+
+.column-header {
+  padding-top: 10px;
+  color: var(--light-color);
+  font-size: 2rem;
+  margin-bottom: 5px;
+}
+
+.icon-placeholder {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  background-color: var(--card-color);
+  margin-right: 5px;
+}
+
+.card {
+  border: none;
+  border-radius: 6px;
+  background-color: var(--card-color);
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  position: relative;
+  transition: var(--global-transition);
+}
+
+.card:hover {
+  transform: none;
+  box-shadow: 0 5px 20px rgba(255, 255, 255, 0.5);
+}
+
+.card-img {
+  position: relative;
+  z-index: 1;
+  margin: 0 auto;
+  width: 80%;
+  height: 100px;
+  object-fit: contain;
+}
+.card-itemwearname {
+  text-align: left;
+  font-size: 12px;
+  padding-top: 10px;
+  padding-left: 12px;
+  min-height: 22px;
+}
+.card-title {
+  font-size: 16px;
+  padding-top: 5px;
+  padding-left: 10px;
+  text-align: left;
+  min-height: 26px;
+  font-weight: bold;
+}
+/* BOTTOM HALF OF CARD */
+.card-body {
+  display: flex;
+  flex-direction: column; /* Switch from horizontal layout to vertical */
+  justify-content: space-between;
+  align-items: stretch; /* Ensures elements stretch to full width of card */
+  padding-top: 10px;
+}
+.row {
+  display: flex;
+  justify-content: space-evenly;
+  flex-wrap: wrap;
+}
+.card-info-container {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: left;
+  width: 100%;
+  padding-left: 10px;
+}
+
+.card-info {
+  display: flex;
+  flex-direction: row; /* Line up items horizontally */
+  justify-content: space-between; /* Space items out evenly */
+  align-items: center; /* Align items along the center line */
+  width: 90%; /* Make sure info takes up full width of card */
+}
+.card-info-label {
+  color: #ffffff;
+  padding-right: 5px;
+  padding-top: 5px;
+}
+
+/* Icon / Caption */
+.icon-placeholder {
+  width: 20px;
+  height: 20px;
+}
+
+.image-caption {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  background-color: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  padding: 10px;
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  box-sizing: border-box;
+}
+.image-containter:hover .image-caption {
+  opacity: 0;
+}
+
+.card-price.positive {
+  color: rgb(135, 230, 135);
+  font-size: 20px;
+  display: inline;
+}
+.card-price.negative {
+  color: rgb(189, 76, 76);
+  font-size: 20px;
+}
+.card-info-profit {
+  margin-top: 10px;
+  margin-bottom: 10px;
+}
+.card-info-timer {
+  opacity: 1;
+  position: absolute;
+  top: 170px;
+  left: 150px;
+}
+.CardBottomSpacer {
+  padding-bottom: 10px;
+}

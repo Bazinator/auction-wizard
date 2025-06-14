@@ -1,0 +1,217 @@
+/* Modern gradient background */
+.main-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #1a1a2e 100%);
+  padding: 2rem;
+}
+
+/* Glassmorphism container */
+.container-columns {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  padding: 2.5rem;
+  border-radius: 20px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  width: 100%;
+  max-width: 400px;
+  transition: transform 0.3s ease;
+}
+
+.container-columns:hover {
+  transform: translateY(-5px);
+}
+
+/* Header styling */
+.switch-login-signup {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 2rem;
+}
+
+.switch-login-signup h1 {
+  font-size: 1.75rem;
+  margin: 0;
+  color: #fff;
+  font-weight: 600;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.switch-login-signup a {
+  text-decoration: none;
+  color: #5eead4;
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.switch-login-signup a:hover {
+  color: #4f9da6;
+  text-shadow: 0 0 8px rgba(94, 234, 212, 0.4);
+}
+
+.switch-login-signup a::after {
+  content: '';
+  position: absolute;
+  width: 0;
+  height: 2px;
+  bottom: -4px;
+  left: 0;
+  background: #5eead4;
+  transition: width 0.3s ease;
+}
+
+.switch-login-signup a:hover::after {
+  width: 100%;
+}
+
+/* Form content */
+.login-info {
+  margin-bottom: 2rem;
+}
+
+.login-info p {
+  color: #fff;
+  margin: 0;
+  font-size: 1rem;
+  opacity: 0.9;
+}
+
+.error-message {
+  color: #ff6b6b !important;
+  margin-top: 0.75rem !important;
+  font-size: 0.9rem;
+  text-shadow: 0 0 8px rgba(255, 107, 107, 0.4);
+}
+
+/* Form inputs */
+.input-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+
+.email-input,
+.password-input,
+.password-input-repeated {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.email-input p,
+.password-input p,
+.password-input-repeated p {
+  margin: 0;
+  color: #fff;
+  font-weight: 500;
+  font-size: 0.95rem;
+}
+
+input {
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  font-size: 1rem;
+  color: #fff;
+  transition: all 0.3s ease;
+}
+
+input:focus {
+  outline: none;
+  border-color: #5eead4;
+  box-shadow: 0 0 0 2px rgba(94, 234, 212, 0.2);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+input::placeholder {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* Submit button */
+.submit-form-button {
+  background: linear-gradient(135deg, #4f9da6 0%, #5eead4 100%);
+  color: white;
+  border: none;
+  padding: 1rem;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 1rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  position: relative;
+  overflow: hidden;
+}
+
+.submit-form-button::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.2),
+    transparent
+  );
+  transition: 0.5s;
+}
+
+.submit-form-button:hover::before {
+  left: 100%;
+}
+
+.submit-form-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 15px rgba(94, 234, 212, 0.4);
+}
+
+.submit-form-button:disabled {
+  background: rgba(255, 255, 255, 0.1);
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.submit-form-button p {
+  margin: 0;
+  font-weight: 500;
+}
+
+/* Password requirements */
+.password-requirements {
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+}
+
+.password-requirements p {
+  margin: 0.35rem 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.password-requirements .valid {
+  color: #5eead4;
+  text-shadow: 0 0 8px rgba(94, 234, 212, 0.4);
+}
+
+.password-requirements .invalid {
+  color: #ff6b6b;
+  text-shadow: 0 0 8px rgba(255, 107, 107, 0.4);
+}
+
+.password-match-error {
+  color: #ff6b6b;
+  font-size: 0.85rem;
+  margin: 0.35rem 0 0 0;
+  text-shadow: 0 0 8px rgba(255, 107, 107, 0.4);
+} 
