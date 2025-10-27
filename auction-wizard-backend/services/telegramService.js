@@ -8,11 +8,11 @@ const sendSniperNotification = async (item, type) => {
   try {
     const message = `🎯 *Sniped an Item!*\n\n` +
       `We found a *${item.name}* ${type === 'auction' ? 'in an auction' : 'on the market'}!\n\n` +
-      `💰 *Price:* $${item.price}\n` +
-      `🎯 *Float:* ${item.float.toFixed(4)}\n` +
-      `📊 *Buff Price:* $${item.buffPrice}\n` +
-      `📈 *Potential Profit:* $${(item.buffPrice - item.price).toFixed(2)}\n\n` +
-      `🔍 *Type:* ${type.charAt(0).toUpperCase() + type.slice(1)} Listing`;
+      ` *Price:* $${item.price}\n` +
+      ` *Float:* ${item.float.toFixed(4)}\n` +
+      ` *Buff Price:* $${item.buffPrice}\n` +
+      ` *Potential Profit:* $${(item.buffPrice - item.price).toFixed(2)}\n\n` +
+      ` *Type:* ${type.charAt(0).toUpperCase() + type.slice(1)} Listing`;
 
     const sendMessageUrl = `https://api.telegram.org/bot${token}/sendMessage`;
     
