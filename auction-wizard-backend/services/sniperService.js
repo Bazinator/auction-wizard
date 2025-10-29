@@ -122,7 +122,6 @@ class SniperService {
   }
 
   async handleAutoAction(item, sniper, type) {
-    
     console.log(`Auto-action skipped for ${type} item ${item.id} (Redis not connected)`);
   }
 }

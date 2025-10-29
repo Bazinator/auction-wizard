@@ -11,6 +11,8 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+
+// Environment Variables
 const url = process.env.MONGODB_URI;
 const dbName = process.env.DB_NAME;
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -47,6 +49,13 @@ async function startServer() {
     app.post('/api/signup', async (req, res) => {
       const { email, password } = req.body;
 
+
+
+      // Check if email is valid
+      if (!email || !password) {
+        return res.status(400).json({ error: 'Email and password are required' });
+      }
+      
       try {
         const existingUser = await db.collection('users').findOne({ email });
         if (existingUser) {
@@ -227,7 +236,7 @@ async function startServer() {
       checkSnipers(data);
     };
 
-    const port = process.env.API_PORT;
+    const port = process.env.API_PORT || 4000;
     app.listen(port, () => console.log(`Server is running on port ${port}`));
   } catch (err) {
     console.error('Server startup error:', err);

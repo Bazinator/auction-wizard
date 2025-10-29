@@ -15,17 +15,17 @@ dotenv.config({ path: path.join(__dirname, '..', '.env') });
 const coinsToUSD = parseFloat(process.env.COINS_TO_USD_RATE);
 const AUCTION_DURATION_MS = parseInt(process.env.AUCTION_DURATION_MS);
 const BEST_ITEMS_FILE = process.env.BEST_ITEMS_FILE;
+const csgoempireApiKey = process.env.CSGOEMPIRE_API_KEY;
+// Sockets and Url's for MongoDB
+const domain = process.env.CSGOEMPIRE_DOMAIN;
+const socketEndpoint = process.env.CSGOEMPIRE_SOCKET_ENDPOINT;
+const uri = process.env.MONGODB_URI;
+
 
 
 const { red, green, yellow } = require('colorette');
 
 // API Key
-const csgoempireApiKey = process.env.CSGOEMPIRE_API_KEY;
-
-// Sockets and Url's for MongoDB
-const domain = process.env.CSGOEMPIRE_DOMAIN;
-const socketEndpoint = process.env.CSGOEMPIRE_SOCKET_ENDPOINT;
-const uri = process.env.MONGODB_URI;
 
 
 
