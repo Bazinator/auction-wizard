@@ -1,14 +1,21 @@
 const express = require('express');
 const mongodb = require('mongodb');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const axios = require('axios');
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const sniperService = require('./sniperService');
 const { matchesSniper } = require('./sniperService');
 
 const app = express();
-app.use(cors());
+app.use(helmet());
+app.use(cors({
+  origin: process.env.FRONTEND_ORIGIN || true,
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
 app.use(express.json());
 
 
@@ -16,6 +23,46 @@ app.use(express.json());
 const url = process.env.MONGODB_URI;
 const dbName = process.env.DB_NAME;
 const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_ISSUER = process.env.JWT_ISSUER || 'auction-wizard';
+const JWT_AUDIENCE = process.env.JWT_AUDIENCE || 'auction-wizard-users';
+const ACCESS_TOKEN_TTL = process.env.ACCESS_TOKEN_TTL || '15m';
+const BCRYPT_ROUNDS = parseInt(process.env.BCRYPT_ROUNDS || '12', 10);
+const REFRESH_TOKEN_TTL = process.env.REFRESH_TOKEN_TTL || '30d';
+
+if (!JWT_SECRET) {
+  console.error('Missing required env: JWT_SECRET');
+  process.exit(1);
+}
+
+const generateJti = () => crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(16).toString('hex');
+
+const signAccessToken = (userId) =>
+  jwt.sign({ userId }, JWT_SECRET, {
+    expiresIn: ACCESS_TOKEN_TTL,
+    issuer: JWT_ISSUER,
+    audience: JWT_AUDIENCE,
+  });
+
+const signRefreshToken = (userId, jti) =>
+  jwt.sign({ userId, jti }, JWT_SECRET, {
+    expiresIn: REFRESH_TOKEN_TTL,
+    issuer: JWT_ISSUER,
+    audience: JWT_AUDIENCE,
+  });
+
+// Validation helpers
+const isValidEmail = (email) => {
+  const re = /^(?:[a-zA-Z0-9_'^&+\-])+(?:\.(?:[a-zA-Z0-9_'^&+\-])+)*@(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$/;
+  return re.test(String(email).toLowerCase());
+};
+
+const isStrongPassword = (password) => {
+  if (typeof password !== 'string' || password.length < 8) return false;
+  const hasUpper = /[A-Z]/.test(password);
+  const hasLower = /[a-z]/.test(password);
+  const hasSpecial = /[!@#$%^&*(),.?":{}|<>]/.test(password);
+  return hasUpper && hasLower && hasSpecial;
+};
 
 // Middleware to verify JWT token
 const authenticateToken = (req, res, next) => {
@@ -25,7 +72,10 @@ const authenticateToken = (req, res, next) => {
   if (!token) return res.status(401).json({ error: 'Access denied' });
 
   try {
-    const verified = jwt.verify(token, JWT_SECRET);
+    const verified = jwt.verify(token, JWT_SECRET, {
+      issuer: JWT_ISSUER,
+      audience: JWT_AUDIENCE,
+    });
     req.userId = verified.userId;
     next();
   } catch (err) {
@@ -45,56 +95,210 @@ async function startServer() {
     // Start the sniper service
     await sniperService.start();
 
+    // Ensure indexes
+    try {
+      await db.collection('users').createIndexes([
+        { key: { email: 1 }, unique: true, name: 'email_unique' },
+      ]);
+      await db.collection('refreshTokens').createIndexes([
+        { key: { jti: 1 }, unique: true, name: 'jti_unique' },
+        { key: { userId: 1 }, name: 'userId_idx' },
+        { key: { createdAt: 1 }, name: 'createdAt_idx' },
+      ]);
+    } catch (e) {
+      console.error('Index creation error:', e);
+    }
+
     // User authentication endpoints
-    app.post('/api/signup', async (req, res) => {
+    const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 100 });
+    const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10 });
+
+    app.post('/api/signup', authLimiter, async (req, res) => {
       const { email, password } = req.body;
 
+      const emailNorm = String(email || '').trim().toLowerCase();
 
-
-      // Check if email is valid
-      if (!email || !password) {
+      if (!emailNorm || !password) {
         return res.status(400).json({ error: 'Email and password are required' });
+      }
+
+      if (!isValidEmail(emailNorm)) {
+        return res.status(400).json({ error: 'Invalid email format' });
+      }
+
+      if (!isStrongPassword(password)) {
+        return res.status(400).json({ error: 'Password does not meet requirements' });
       }
       
       try {
-        const existingUser = await db.collection('users').findOne({ email });
+        const existingUser = await db.collection('users').findOne({ email: emailNorm });
         if (existingUser) {
-          return res.status(400).json({ error: 'Email already registered' });
+          return res.status(400).json({ error: 'Unable to create account' });
         }
 
-        const salt = await bcrypt.genSalt(10);
+        const salt = await bcrypt.genSalt(BCRYPT_ROUNDS);
         const hashedPassword = await bcrypt.hash(password, salt);
 
         const result = await db.collection('users').insertOne({
-          email,
+          email: emailNorm,
           password: hashedPassword,
-          createdAt: new Date()
+          createdAt: new Date(),
+          failedLoginAttempts: 0,
+          lockUntil: null,
         });
 
-        const token = jwt.sign({ userId: result.insertedId }, JWT_SECRET, { expiresIn: '24h' });
-        res.status(201).json({ token });
+        // Issue tokens
+        const accessToken = signAccessToken(result.insertedId);
+        const jti = generateJti();
+        const refreshToken = signRefreshToken(result.insertedId, jti);
+
+        // Store hashed refresh token
+        const refreshHash = await bcrypt.hash(refreshToken, await bcrypt.genSalt(BCRYPT_ROUNDS));
+        await db.collection('refreshTokens').insertOne({
+          userId: result.insertedId,
+          jti,
+          tokenHash: refreshHash,
+          revoked: false,
+          createdAt: new Date(),
+        });
+
+        res.status(201).json({ token: accessToken, refreshToken });
       } catch (err) {
         console.error('Signup error:', err);
         res.status(500).json({ error: 'Failed to create user' });
       }
     });
 
-    app.post('/api/login', async (req, res) => {
-      const { email, password } = req.body;
+    // Refresh token rotation
+    app.post('/api/token/refresh', authLimiter, async (req, res) => {
+      const { refreshToken } = req.body || {};
+      if (!refreshToken) {
+        return res.status(400).json({ error: 'Refresh token required' });
+      }
 
       try {
-        const user = await db.collection('users').findOne({ email });
+        const decoded = jwt.verify(refreshToken, JWT_SECRET, {
+          issuer: JWT_ISSUER,
+          audience: JWT_AUDIENCE,
+        });
+
+        const { userId, jti } = decoded;
+        const record = await db.collection('refreshTokens').findOne({ jti, userId: new mongodb.ObjectId(userId) });
+
+        if (!record || record.revoked) {
+          // Possible reuse — revoke all tokens for user
+          await db.collection('refreshTokens').updateMany(
+            { userId: new mongodb.ObjectId(userId), revoked: { $ne: true } },
+            { $set: { revoked: true, revokedAt: new Date(), reason: 'reuse_suspected' } }
+          );
+          return res.status(401).json({ error: 'Invalid refresh token' });
+        }
+
+        const matches = await bcrypt.compare(refreshToken, record.tokenHash);
+        if (!matches) {
+          // Reuse attempt with different token string
+          await db.collection('refreshTokens').updateMany(
+            { userId: new mongodb.ObjectId(userId), revoked: { $ne: true } },
+            { $set: { revoked: true, revokedAt: new Date(), reason: 'reuse_detected' } }
+          );
+          return res.status(401).json({ error: 'Invalid refresh token' });
+        }
+
+        // Rotate: revoke old, issue new
+        await db.collection('refreshTokens').updateOne({ _id: record._id }, { $set: { revoked: true, usedAt: new Date() } });
+
+        const newJti = generateJti();
+        const newAccessToken = signAccessToken(record.userId);
+        const newRefreshToken = signRefreshToken(record.userId, newJti);
+        const newHash = await bcrypt.hash(newRefreshToken, await bcrypt.genSalt(BCRYPT_ROUNDS));
+        await db.collection('refreshTokens').insertOne({
+          userId: record.userId,
+          jti: newJti,
+          tokenHash: newHash,
+          revoked: false,
+          createdAt: new Date(),
+        });
+
+        return res.json({ token: newAccessToken, refreshToken: newRefreshToken });
+      } catch (err) {
+        console.error('Refresh error:', err);
+        return res.status(401).json({ error: 'Invalid refresh token' });
+      }
+    });
+
+    // Logout: revoke provided refresh token
+    app.post('/api/logout', authLimiter, async (req, res) => {
+      const { refreshToken } = req.body || {};
+      if (!refreshToken) {
+        return res.status(400).json({ error: 'Refresh token required' });
+      }
+
+      try {
+        const decoded = jwt.verify(refreshToken, JWT_SECRET, {
+          issuer: JWT_ISSUER,
+          audience: JWT_AUDIENCE,
+        });
+
+        const { userId, jti } = decoded;
+        await db.collection('refreshTokens').updateOne(
+          { jti, userId: new mongodb.ObjectId(userId) },
+          { $set: { revoked: true, revokedAt: new Date(), reason: 'logout' } }
+        );
+        return res.json({ success: true });
+      } catch (err) {
+        console.error('Logout error:', err);
+        return res.status(400).json({ error: 'Invalid refresh token' });
+      }
+    });
+
+    app.post('/api/login', loginLimiter, async (req, res) => {
+      const { email, password } = req.body;
+
+      const emailNorm = String(email || '').trim().toLowerCase();
+
+      try {
+        const user = await db.collection('users').findOne({ email: emailNorm });
         if (!user) {
-          return res.status(400).json({ error: 'User does not exist' });
+          return res.status(400).json({ error: 'Invalid email or password' });
+        }
+
+        if (user.lockUntil && new Date(user.lockUntil) > new Date()) {
+          return res.status(429).json({ error: 'Too many attempts. Try again later.' });
         }
 
         const isValidPassword = await bcrypt.compare(password, user.password);
         if (!isValidPassword) {
-          return res.status(400).json({ error: 'Incorrect password' });
+          const attempts = (user.failedLoginAttempts || 0) + 1;
+          const update = { $set: { failedLoginAttempts: attempts } };
+          const MAX_ATTEMPTS = 5;
+          if (attempts >= MAX_ATTEMPTS) {
+            update.$set.lockUntil = new Date(Date.now() + 15 * 60 * 1000);
+            update.$set.failedLoginAttempts = 0;
+          }
+          await db.collection('users').updateOne({ _id: user._id }, update);
+          return res.status(400).json({ error: 'Invalid email or password' });
         }
 
-        const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '24h' });
-        res.json({ token });
+        // reset attempts on success
+        await db.collection('users').updateOne(
+          { _id: user._id },
+          { $set: { failedLoginAttempts: 0, lockUntil: null } }
+        );
+
+        const accessToken = signAccessToken(user._id);
+        const jti = generateJti();
+        const refreshToken = signRefreshToken(user._id, jti);
+
+        const refreshHash = await bcrypt.hash(refreshToken, await bcrypt.genSalt(BCRYPT_ROUNDS));
+        await db.collection('refreshTokens').insertOne({
+          userId: user._id,
+          jti,
+          tokenHash: refreshHash,
+          revoked: false,
+          createdAt: new Date(),
+        });
+
+        res.json({ token: accessToken, refreshToken });
       } catch (err) {
         console.error('Login error:', err);
         res.status(500).json({ error: 'An error occurred during login' });

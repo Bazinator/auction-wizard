@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
-import { setAuthToken, removeAuthToken, isAuthenticated } from '../utils/auth';
+import { setAuthToken, removeAuthToken, isAuthenticated, setRefreshToken, removeRefreshToken } from '../utils/auth';
 
 export const useAuth = () => {
   const [loading, setLoading] = useState(true);
@@ -16,8 +16,9 @@ export const useAuth = () => {
     try {
       setLoading(true);
       setError('');
-      const response = await api.post('/login', { email, password });
+      const response = await api.post('/api/login', { email, password });
       setAuthToken(response.data.token);
+      if (response.data.refreshToken) setRefreshToken(response.data.refreshToken);
       navigate('/sniper');
     } catch (err) {
       setError(err.response?.data?.error || 'Login failed');
@@ -31,8 +32,9 @@ export const useAuth = () => {
     try {
       setLoading(true);
       setError('');
-      const response = await api.post('/signup', { email, password });
+      const response = await api.post('/api/signup', { email, password });
       setAuthToken(response.data.token);
+      if (response.data.refreshToken) setRefreshToken(response.data.refreshToken);
       navigate('/sniper');
     } catch (err) {
       setError(err.response?.data?.error || 'Signup failed');
@@ -42,9 +44,19 @@ export const useAuth = () => {
     }
   };
 
-  const logout = () => {
-    removeAuthToken();
-    navigate('/login');
+  const logout = async () => {
+    try {
+      const refreshToken = localStorage.getItem('refreshToken');
+      if (refreshToken) {
+        await api.post('/api/logout', { refreshToken });
+      }
+    } catch (_) {
+      // ignore
+    } finally {
+      removeAuthToken();
+      removeRefreshToken();
+      navigate('/login');
+    }
   };
 
   return {
