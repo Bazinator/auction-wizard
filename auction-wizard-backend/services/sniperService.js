@@ -63,39 +63,130 @@ class SniperService {
     }
   }
 
-  async processMarketItems() {
-    const marketItems = await this.db.collection('marketitems').find().toArray();
-    const snipers = await this.db.collection('snipers').find().toArray();
+  /**
+   * Builds a MongoDB query object from sniper criteria
+   * @param {Object} sniper - Sniper criteria object
+   * @returns {Object} MongoDB query object
+   */
+  buildSniperQuery(sniper) {
+    const query = {};
 
-    for (const item of marketItems) {
-      for (const sniper of snipers) {
-        if (this.matchesSniper(item, sniper)) {
-          await this.handleMatch(item, sniper, 'market');
-        }
+    // Name matching using regex (case-insensitive)
+    if (sniper.marketName) {
+      query.name = { $regex: sniper.marketName, $options: 'i' };
+    }
+
+    // Price range filtering
+    if (sniper.minPrice !== undefined && sniper.minPrice !== null) {
+      query.price = { ...query.price, $gte: parseFloat(sniper.minPrice) };
+    }
+    if (sniper.maxPrice !== undefined && sniper.maxPrice !== null) {
+      query.price = { ...query.price, $lte: parseFloat(sniper.maxPrice) };
+    }
+
+    // Float range filtering
+    if (sniper.minFloat !== undefined && sniper.minFloat !== null) {
+      query.float = { ...query.float, $gte: parseFloat(sniper.minFloat) };
+    }
+    if (sniper.maxFloat !== undefined && sniper.maxFloat !== null) {
+      query.float = { ...query.float, $lte: parseFloat(sniper.maxFloat) };
+    }
+
+    return query;
+  }
+
+  async processMarketItems() {
+    try {
+      // Fetch all snipers once
+      const snipers = await this.db.collection('snipers').find().toArray();
+      
+      if (snipers.length === 0) {
+        return; // No snipers to process
       }
+
+      // Process all snipers in parallel
+      const matchPromises = snipers.map(async (sniper) => {
+        try {
+          // Build MongoDB query for this sniper
+          const query = this.buildSniperQuery(sniper);
+          
+          // Query database directly - only get matching items
+          const matchingItems = await this.db.collection('marketitems')
+            .find(query)
+            .toArray();
+
+          // Handle each matching item
+          for (const item of matchingItems) {
+            await this.handleMatch(item, sniper, 'market');
+          }
+        } catch (error) {
+          console.error(`Error processing sniper ${sniper._id} for market items:`, error);
+        }
+      });
+
+      // Wait for all sniper queries to complete
+      await Promise.all(matchPromises);
+    } catch (error) {
+      console.error('Error in processMarketItems:', error);
+      throw error;
     }
   }
 
   async processAuctionItems() {
-    const auctionItems = await this.db.collection('liveitems').find().toArray();
-    const snipers = await this.db.collection('snipers').find().toArray();
-
-    for (const item of auctionItems) {
-      for (const sniper of snipers) {
-        if (this.matchesSniper(item, sniper)) {
-          await this.handleMatch(item, sniper, 'auction');
-        }
+    try {
+      // Fetch all snipers once
+      const snipers = await this.db.collection('snipers').find().toArray();
+      
+      if (snipers.length === 0) {
+        return; // No snipers to process
       }
+
+      // Process all snipers in parallel
+      const matchPromises = snipers.map(async (sniper) => {
+        try {
+          // Build MongoDB query for this sniper
+          const query = this.buildSniperQuery(sniper);
+          
+          // Query database directly - only get matching items
+          const matchingItems = await this.db.collection('liveitems')
+            .find(query)
+            .toArray();
+
+          // Handle each matching item
+          for (const item of matchingItems) {
+            await this.handleMatch(item, sniper, 'auction');
+          }
+        } catch (error) {
+          console.error(`Error processing sniper ${sniper._id} for auction items:`, error);
+        }
+      });
+
+      // Wait for all sniper queries to complete
+      await Promise.all(matchPromises);
+    } catch (error) {
+      console.error('Error in processAuctionItems:', error);
+      throw error;
     }
   }
 
-  matchesSniper(item, sniper) {
+  /**
+   * Static method to check if an item matches sniper criteria
+   * Can be used for in-memory filtering when needed
+   * @param {Object} item - Item object
+   * @param {Object} sniper - Sniper criteria object
+   * @returns {boolean} True if item matches sniper criteria
+   */
+  static matchesSniper(item, sniper) {
     return (
       item.name.includes(sniper.marketName) &&
       (!sniper.maxPrice || item.price <= sniper.maxPrice) &&
       (!sniper.minFloat || item.float >= sniper.minFloat) &&
       (!sniper.maxFloat || item.float <= sniper.maxFloat)
     );
+  }
+
+  matchesSniper(item, sniper) {
+    return SniperService.matchesSniper(item, sniper);
   }
 
   async handleMatch(item, sniper, type) {
@@ -126,4 +217,9 @@ class SniperService {
   }
 }
 
-module.exports = new SniperService(); 
+// Export singleton instance
+const sniperServiceInstance = new SniperService();
+
+// Export static method for use in other modules
+module.exports = sniperServiceInstance;
+module.exports.matchesSniper = SniperService.matchesSniper; 
