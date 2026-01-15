@@ -25,10 +25,6 @@ const uri = process.env.MONGODB_URI;
 
 const { red, green, yellow } = require('colorette');
 
-// API Key
-
-
-
 // Set the authorization header for all axios requests to the CSGOEmpire API Key
 axios.defaults.headers.common['Authorization'] = `Bearer ${csgoempireApiKey}`;
 
@@ -460,6 +456,8 @@ async function OnSocketNewAuctionItem(items, createdAt, db) {
     // Insert the item into the database
     await db.collection('liveitems').insertOne(item);
     
+
+    // TODO: Uncomment this when we have a way to speed up the python script
     // const pythonScriptPath = path.resolve(__dirname, 'Scrapers', 'Scrapebuff.py');
     // console.log(`Running python script: ${pythonScriptPath}`);
     // const pythonScript = `py ${pythonScriptPath} ${item.id}`;
@@ -486,11 +484,7 @@ async function OnSocketNewMarketItem(items, db){
     //console.log(red(`Processing new market item: ${items.market_name}`));
 
 
-    //0.61 here represent the current market rate of coins to USD
     const price = parseFloat(((items.market_value / 100) * coinsToUSD).toFixed(2));
-
-
-    //
     // Create the item object
     // Now calculating the profit in scraper script
     const item = {
@@ -535,7 +529,7 @@ async function onSocketNewAuctionUpdate(updateData, db) {
         // Update the item in the database
         await db.collection('liveitems').updateOne(
             { id: itemId},
-            { $set: { price: newPrice, profit: newProfit } } // Update profit here
+            { $set: { price: newPrice, profit: newProfit } }
         );
 
         console.log(`Document ${currentItem.name} updated to new price: ${newPrice} from old price: ${currentItem.price}`);
