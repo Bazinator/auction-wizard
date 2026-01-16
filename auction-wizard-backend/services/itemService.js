@@ -4,7 +4,6 @@ const axios = require('axios');
 const { MongoClient} = require('mongodb');
 const fs = require('fs');
 const dotenv = require('dotenv');
-const { exec }  = require('child_process');
 const path = require('path');
 
 // Load the .env file
@@ -23,7 +22,7 @@ const uri = process.env.MONGODB_URI;
 
 
 
-const { red, green, yellow } = require('colorette');
+const { red, yellow } = require('colorette');
 
 // Set the authorization header for all axios requests to the CSGOEmpire API Key
 axios.defaults.headers.common['Authorization'] = `Bearer ${csgoempireApiKey}`;

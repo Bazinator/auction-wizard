@@ -30,3 +30,6 @@ node_modules
 /Scrapers/venv
 /Scrapers/PCvenv
 venv
+
+# Idea Folders
+/optimizeplans

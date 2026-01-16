@@ -8,7 +8,7 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const sniperService = require('./sniperService');
-const { matchesSniper } = require('./sniperService');
+const { matchesSniper } = require('./sniperService.js');
 
 const app = express();
 app.use(helmet());
