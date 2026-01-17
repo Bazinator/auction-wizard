@@ -1,6 +1,7 @@
 const { MongoClient } = require('mongodb');
 const Redis = require('ioredis');
 const telegramService = require('./telegramService');
+const { buildSniperQuery: buildSniperQueryUtil } = require('../utils/sniperQueryBuilder');
 require('dotenv').config({ path: '../.env' });
 
 class SniperService {
@@ -65,34 +66,12 @@ class SniperService {
 
   /**
    * Builds a MongoDB query object from sniper criteria
+   * Delegates to shared utility for consistency across the codebase
    * @param {Object} sniper - Sniper criteria object
    * @returns {Object} MongoDB query object
    */
   buildSniperQuery(sniper) {
-    const query = {};
-
-    // Name matching using regex (case-insensitive)
-    if (sniper.marketName) {
-      query.name = { $regex: sniper.marketName, $options: 'i' };
-    }
-
-    // Price range filtering
-    if (sniper.minPrice !== undefined && sniper.minPrice !== null) {
-      query.price = { ...query.price, $gte: parseFloat(sniper.minPrice) };
-    }
-    if (sniper.maxPrice !== undefined && sniper.maxPrice !== null) {
-      query.price = { ...query.price, $lte: parseFloat(sniper.maxPrice) };
-    }
-
-    // Float range filtering
-    if (sniper.minFloat !== undefined && sniper.minFloat !== null) {
-      query.float = { ...query.float, $gte: parseFloat(sniper.minFloat) };
-    }
-    if (sniper.maxFloat !== undefined && sniper.maxFloat !== null) {
-      query.float = { ...query.float, $lte: parseFloat(sniper.maxFloat) };
-    }
-
-    return query;
+    return buildSniperQueryUtil(sniper);
   }
 
   async processMarketItems() {

@@ -8,7 +8,7 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const sniperService = require('./sniperService');
-const { matchesSniper } = require('./sniperService.js');
+const { buildSniperQuery } = require('../utils/sniperQueryBuilder');
 
 const app = express();
 app.use(helmet());
@@ -401,10 +401,13 @@ async function startServer() {
       const { marketName, maxPrice, minFloat, maxFloat } = req.body;
 
       try {
-        const marketItems = await db.collection('marketitems').find().toArray();
-        const matchingItems = marketItems.filter(item =>
-          matchesSniper(item, { marketName, maxPrice, minFloat, maxFloat })
-        );
+        // Build MongoDB query from criteria - eliminates loading all items into memory
+        const query = buildSniperQuery({ marketName, maxPrice, minFloat, maxFloat });
+        
+        // Query database directly - only fetch matching items
+        const matchingItems = await db.collection('marketitems')
+          .find(query)
+          .toArray();
 
         res.json(matchingItems);
       } catch (error) {
