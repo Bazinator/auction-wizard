@@ -382,10 +382,16 @@ async function startServer() {
         } else if (itemType === 'market') {
           items = await db.collection('marketitems').find(query).sort(options.sort).skip(options.skip).limit(options.limit).toArray();
         } else {
-          const liveItems = await db.collection('liveitems').find(query).sort(options.sort).skip(options.skip).limit(options.limit).toArray();
-          const marketItems = await db.collection('marketitems').find(query).sort(options.sort).skip(options.skip).limit(options.limit).toArray();
-          items = [...liveItems, ...marketItems].sort((a, b) => a.name.localeCompare(b.name));
-          items = items.slice(0, parseInt(limit));
+          // Use aggregation pipeline to merge collections before pagination
+          // This eliminates in-memory merging and improves performance
+          const pipeline = [
+            { $match: query },
+            { $unionWith: { coll: 'liveitems', pipeline: [{ $match: query }] } },
+            { $sort: { name: 1 } },
+            { $skip: options.skip },
+            { $limit: parseInt(limit) }
+          ];
+          items = await db.collection('marketitems').aggregate(pipeline).toArray();
         }
 
         console.log('Items returned:', items.length);
