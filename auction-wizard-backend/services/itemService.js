@@ -366,9 +366,11 @@ async function onSocketItemUpdate(updateData, db) {
     };
 
     try {
-        // Check both collections for the item by ID
-        const liveItem = await db.collection('liveitems').findOne({ id });
-        const marketItem = await db.collection('marketitems').findOne({ id });
+        // Check both collections for the item by ID (parallel queries for better performance)
+        const [liveItem, marketItem] = await Promise.all([
+            db.collection('liveitems').findOne({ id }),
+            db.collection('marketitems').findOne({ id })
+        ]);
 
         if (!liveItem && !marketItem) {
             // If item doesn't exist in either collection
