@@ -1,6 +1,6 @@
 /**
  * Structured logging utility using Winston
- * Provides consistent logging across all services
+ * Provides consistent logging across all backend services
  */
 
 const winston = require('winston');
