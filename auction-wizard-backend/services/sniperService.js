@@ -2,6 +2,7 @@ const { MongoClient } = require('mongodb');
 const Redis = require('ioredis');
 const telegramService = require('./telegramService');
 const { buildSniperQuery: buildSniperQueryUtil } = require('../utils/sniperQueryBuilder');
+const logger = require('../utils/logger');
 require('dotenv').config({ path: '../.env' });
 
 class SniperService {
@@ -16,14 +17,14 @@ class SniperService {
     try {
       await this.mongoClient.connect();
       this.db = this.mongoClient.db(this.dbName);
-      console.log('SniperService connected to MongoDB');
+      logger.info('SniperService connected to MongoDB');
 
       // Skip Redis initialization for now
       this.redisConnected = false;
-      console.log('Redis connection skipped - running without Redis');
+      logger.info('Redis connection skipped - running without Redis');
 
     } catch (error) {
-      console.error('Failed to connect to databases:', error);
+      logger.error('Failed to connect to databases', { error: error.message, stack: error.stack });
       throw error;
     }
   }
@@ -35,20 +36,31 @@ class SniperService {
       await this.connect();
       this.isRunning = true;
       this.startProcessing();
-      console.log('SniperService started successfully');
+      logger.info('SniperService started successfully');
     } catch (error) {
-      console.error('Failed to start SniperService:', error);
+      logger.error('Failed to start SniperService', { error: error.message, stack: error.stack });
       this.isRunning = false;
     }
   }
 
   async stop() {
+    logger.info('Stopping SniperService...');
     this.isRunning = false;
-    await this.mongoClient.close();
-    if (this.redisConnected) {
-      await this.redis.quit();
+    
+    try {
+      if (this.mongoClient) {
+        await this.mongoClient.close();
+        logger.info('SniperService MongoDB connection closed');
+      }
+      if (this.redisConnected && this.redis) {
+        await this.redis.quit();
+        logger.info('SniperService Redis connection closed');
+      }
+      logger.info('SniperService stopped');
+    } catch (error) {
+      logger.error('Error stopping SniperService', { error: error.message, stack: error.stack });
+      throw error;
     }
-    console.log('SniperService stopped');
   }
   // Main function that is called when the service begins
   async startProcessing() {
@@ -58,7 +70,7 @@ class SniperService {
         await this.processAuctionItems();
         await new Promise(resolve => setTimeout(resolve, 30000));
       } catch (error) {
-        console.error('Error in sniper processing:', error);
+        logger.error('Error in sniper processing', { error: error.message, stack: error.stack });
         await new Promise(resolve => setTimeout(resolve, 5000)); // Wait before retrying
       }
     }
@@ -99,14 +111,14 @@ class SniperService {
             await this.handleMatch(item, sniper, 'market');
           }
         } catch (error) {
-          console.error(`Error processing sniper ${sniper._id} for market items:`, error);
+          logger.error(`Error processing sniper for market items`, { sniperId: sniper._id, error: error.message, stack: error.stack });
         }
       });
 
       // Wait for all sniper queries to complete
       await Promise.all(matchPromises);
     } catch (error) {
-      console.error('Error in processMarketItems:', error);
+      logger.error('Error in processMarketItems', { error: error.message, stack: error.stack });
       throw error;
     }
   }
@@ -136,7 +148,7 @@ class SniperService {
             await this.handleMatch(item, sniper, 'auction');
           }
         } catch (error) {
-          console.error(`Error processing sniper ${sniper._id} for auction items:`, error);
+          logger.error(`Error processing sniper for auction items`, { sniperId: sniper._id, error: error.message, stack: error.stack });
         }
       });
 
@@ -178,21 +190,21 @@ class SniperService {
         await this.handleAutoAction(item, sniper, type);
       }
     } catch (error) {
-      console.error('Error handling match:', error);
+      logger.error('Error handling match', { error: error.message, stack: error.stack });
     }
   }
 
   async sendNotification(item, type) {
-    console.log("Skipping telegram message for " + item);
+    logger.debug("Skipping telegram message", { itemId: item.id, itemName: item.name, type });
     // try {
     //   await telegramService.sendSniperNotification(item, type);
     // } catch (error) {
-    //   console.error('Failed to send notification:', error);
+    //   logger.error('Failed to send notification', { error: error.message, stack: error.stack });
     // }
   }
 
   async handleAutoAction(item, sniper, type) {
-    console.log(`Auto-action skipped for ${type} item ${item.id} (Redis not connected)`);
+    logger.debug(`Auto-action skipped for ${type} item`, { itemId: item.id, reason: 'Redis not connected' });
   }
 }
 

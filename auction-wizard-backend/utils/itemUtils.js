@@ -1,12 +1,23 @@
 const fs = require('fs');
+const logger = require('./logger');
 
 // Initialize tiers for the leaderboard
+const bestItems = {
+  '0-500': [],
+  '500-1000': [],
+  '1000-2000': [],
+  '2000+': []
+};
 
 // Load existing best items
 try {
-  Object.assign(bestItems, JSON.parse(fs.readFileSync('best_items.json')));
+  const filePath = process.env.BEST_ITEMS_FILE || 'data/best_items.json';
+  const fileData = fs.readFileSync(filePath, 'utf8');
+  const loaded = JSON.parse(fileData);
+  Object.assign(bestItems, loaded);
+  logger.info('Loaded existing best_items.json file');
 } catch (err) {
-  console.log('No existing best_items.json file found.');
+  logger.info('No existing best_items.json file found, using empty structure');
 }
 
 async function handleNewItem(db, item) {

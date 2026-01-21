@@ -9,14 +9,46 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const sniperService = require('./sniperService');
 const { buildSniperQuery } = require('../utils/sniperQueryBuilder');
+const logger = require('../utils/logger');
+const { validateEnv } = require('../utils/validateEnv');
+const DatabaseConnection = require('../utils/dbConnection');
+const { errorHandler, asyncHandler, notFoundHandler } = require('../middleware/errorHandler');
+const {
+  validatePagination,
+  validateNumericParams,
+  validateMarketName,
+  validateObjectId,
+  validateItemType,
+  validateSniperCriteria,
+} = require('../middleware/validator');
+
+// Validate environment variables at startup
+try {
+  validateEnv();
+} catch (error) {
+  logger.error('Environment validation failed', { error: error.message });
+  process.exit(1);
+}
 
 const app = express();
 app.use(helmet());
+
+// CORS configuration - require FRONTEND_ORIGIN (security critical)
+const frontendOrigin = process.env.FRONTEND_ORIGIN;
+if (!frontendOrigin || frontendOrigin === 'true') {
+  logger.error('FRONTEND_ORIGIN must be set to a specific origin for security');
+  process.exit(1);
+}
+
 app.use(cors({
-  origin: process.env.FRONTEND_ORIGIN || true,
+  origin: frontendOrigin,
   allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
 }));
-app.use(express.json());
+
+// Request size limits (DoS protection)
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 
 // Environment Variables
@@ -30,7 +62,7 @@ const BCRYPT_ROUNDS = parseInt(process.env.BCRYPT_ROUNDS || '12', 10);
 const REFRESH_TOKEN_TTL = process.env.REFRESH_TOKEN_TTL || '30d';
 
 if (!JWT_SECRET) {
-  console.error('Missing required env: JWT_SECRET');
+  logger.error('Missing required env: JWT_SECRET');
   process.exit(1);
 }
 
@@ -83,14 +115,17 @@ const authenticateToken = (req, res, next) => {
   }
 };
 
+let server;
+let dbConnection;
+let db;
+
 async function startServer() {
-  const client = new mongodb.MongoClient(url, { useUnifiedTopology: true });
-
   try {
-    await client.connect();
-    console.log("Connected successfully to server");
+    // Create database connection
+    dbConnection = new DatabaseConnection(url, dbName);
+    db = await dbConnection.connect();
 
-    const db = client.db(dbName);
+    logger.info("Connected successfully to MongoDB server");
 
     // Start the sniper service
     await sniperService.start();
@@ -105,15 +140,18 @@ async function startServer() {
         { key: { userId: 1 }, name: 'userId_idx' },
         { key: { createdAt: 1 }, name: 'createdAt_idx' },
       ]);
+      logger.info('Database indexes created/verified');
     } catch (e) {
-      console.error('Index creation error:', e);
+      logger.error('Index creation error', { error: e.message });
     }
 
-    // User authentication endpoints
+    // Rate limiters
     const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 100 });
     const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10 });
+    const itemsLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 100 });
+    const userMatchesLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 50 });
 
-    app.post('/api/signup', authLimiter, async (req, res) => {
+    app.post('/api/signup', authLimiter, asyncHandler(async (req, res) => {
       const { email, password } = req.body;
 
       const emailNorm = String(email || '').trim().toLowerCase();
@@ -164,13 +202,13 @@ async function startServer() {
 
         res.status(201).json({ token: accessToken, refreshToken });
       } catch (err) {
-        console.error('Signup error:', err);
+        logger.error('Signup error', { error: err.message, stack: err.stack });
         res.status(500).json({ error: 'Failed to create user' });
       }
-    });
+    }));
 
     // Refresh token rotation
-    app.post('/api/token/refresh', authLimiter, async (req, res) => {
+    app.post('/api/token/refresh', authLimiter, asyncHandler(async (req, res) => {
       const { refreshToken } = req.body || {};
       if (!refreshToken) {
         return res.status(400).json({ error: 'Refresh token required' });
@@ -221,13 +259,13 @@ async function startServer() {
 
         return res.json({ token: newAccessToken, refreshToken: newRefreshToken });
       } catch (err) {
-        console.error('Refresh error:', err);
+        logger.error('Refresh error', { error: err.message, stack: err.stack });
         return res.status(401).json({ error: 'Invalid refresh token' });
       }
-    });
+    }));
 
     // Logout: revoke provided refresh token
-    app.post('/api/logout', authLimiter, async (req, res) => {
+    app.post('/api/logout', authLimiter, asyncHandler(async (req, res) => {
       const { refreshToken } = req.body || {};
       if (!refreshToken) {
         return res.status(400).json({ error: 'Refresh token required' });
@@ -246,12 +284,12 @@ async function startServer() {
         );
         return res.json({ success: true });
       } catch (err) {
-        console.error('Logout error:', err);
+        logger.error('Logout error', { error: err.message, stack: err.stack });
         return res.status(400).json({ error: 'Invalid refresh token' });
       }
-    });
+    }));
 
-    app.post('/api/login', loginLimiter, async (req, res) => {
+    app.post('/api/login', loginLimiter, asyncHandler(async (req, res) => {
       const { email, password } = req.body;
 
       const emailNorm = String(email || '').trim().toLowerCase();
@@ -300,49 +338,48 @@ async function startServer() {
 
         res.json({ token: accessToken, refreshToken });
       } catch (err) {
-        console.error('Login error:', err);
+        logger.error('Login error', { error: err.message, stack: err.stack });
         res.status(500).json({ error: 'An error occurred during login' });
       }
-    });
+    }));
 
     // Sniper endpoints
-    app.post('/api/snipers', authenticateToken, async (req, res) => {
-      const { marketName, minPrice, maxPrice, minFloat, maxFloat } = req.body;
-
-      if (!marketName) {
-        return res.status(400).json({ error: 'Market Name is required' });
-      }
+    app.post('/api/snipers', authenticateToken, validateSniperCriteria, asyncHandler(async (req, res) => {
+      const { marketName, minPrice, maxPrice, minFloat, maxFloat } = req.validated;
 
       const sniperCriteria = {
         userId: new mongodb.ObjectId(req.userId),
         marketName,
-        minPrice: parseFloat(minPrice),
-        maxPrice: parseFloat(maxPrice),
-        minFloat: parseFloat(minFloat),
-        maxFloat: parseFloat(maxFloat),
+        minPrice: minPrice !== undefined ? minPrice : null,
+        maxPrice: maxPrice !== undefined ? maxPrice : null,
+        minFloat: minFloat !== undefined ? minFloat : null,
+        maxFloat: maxFloat !== undefined ? maxFloat : null,
         createdAt: new Date()
       };
 
       try {
         const result = await db.collection('snipers').insertOne(sniperCriteria);
+        logger.info('Sniper registered', { userId: req.userId, sniperId: result.insertedId });
         res.status(201).json({ message: 'Sniper registered successfully', id: result.insertedId });
       } catch (err) {
+        logger.error('Failed to register sniper', { error: err.message, userId: req.userId });
         res.status(500).json({ error: 'Failed to register sniper' });
       }
-    });
+    }));
 
-    app.get('/api/snipers', authenticateToken, async (req, res) => {
+    app.get('/api/snipers', authenticateToken, asyncHandler(async (req, res) => {
       try {
         const snipers = await db.collection('snipers')
           .find({ userId: new mongodb.ObjectId(req.userId) })
           .toArray();
         res.json(snipers);
       } catch (err) {
+        logger.error('Failed to fetch snipers', { error: err.message, userId: req.userId });
         res.status(500).json({ error: 'Failed to fetch snipers' });
       }
-    });
+    }));
 
-    app.delete('/api/snipers/:id', authenticateToken, async (req, res) => {
+    app.delete('/api/snipers/:id', authenticateToken, validateObjectId, asyncHandler(async (req, res) => {
       try {
         const result = await db.collection('snipers').deleteOne({
           _id: new mongodb.ObjectId(req.params.id),
@@ -353,26 +390,26 @@ async function startServer() {
           return res.status(404).json({ error: 'Sniper not found' });
         }
 
+        logger.info('Sniper deleted', { userId: req.userId, sniperId: req.params.id });
         res.json({ message: 'Sniper deleted successfully' });
       } catch (err) {
+        logger.error('Failed to delete sniper', { error: err.message, userId: req.userId, sniperId: req.params.id });
         res.status(500).json({ error: 'Failed to delete sniper' });
       }
-    });
+    }));
 
-    app.get('/api/items', async (req, res) => {
-      const { marketName, minPrice, maxPrice, minFloat, maxFloat, itemType, page = 1, limit = 10 } = req.query;
-      
-      console.log('Pagination params:', { page, limit });
-      console.log('Query params:', { itemType, marketName, minPrice, maxPrice });
+    app.get('/api/items', itemsLimiter, validatePagination, validateNumericParams, validateMarketName, validateItemType, asyncHandler(async (req, res) => {
+      const { page, limit, skip } = req.validated;
+      const { minPrice, maxPrice, minFloat, maxFloat, marketName, itemType } = req.validated || req.query;
 
-      const query = {};
+      // Build query from validated parameters
+      const query = buildSniperQuery({ marketName, minPrice, maxPrice, minFloat, maxFloat });
+
       const options = {
-        skip: (parseInt(page) - 1) * parseInt(limit),
-        limit: parseInt(limit),
+        skip,
+        limit,
         sort: { name: 1 }
       };
-
-      console.log('MongoDB options:', options);
 
       try {
         let items = [];
@@ -389,22 +426,22 @@ async function startServer() {
             { $unionWith: { coll: 'liveitems', pipeline: [{ $match: query }] } },
             { $sort: { name: 1 } },
             { $skip: options.skip },
-            { $limit: parseInt(limit) }
+            { $limit: limit }
           ];
           items = await db.collection('marketitems').aggregate(pipeline).toArray();
         }
 
-        console.log('Items returned:', items.length);
+        logger.debug('Items fetched', { count: items.length, itemType, page, limit });
         res.json(items);
       } catch (err) {
-        console.error('Error in /api/items:', err);
+        logger.error('Error in /api/items', { error: err.message, stack: err.stack });
         res.status(500).json({ error: 'Failed to fetch items' });
       }
-    });
+    }));
 
     // Endpoint to fetch matching items for a user
-    app.post('/api/user-matches', authenticateToken, async (req, res) => {
-      const { marketName, maxPrice, minFloat, maxFloat } = req.body;
+    app.post('/api/user-matches', authenticateToken, userMatchesLimiter, validateSniperCriteria, asyncHandler(async (req, res) => {
+      const { marketName, maxPrice, minFloat, maxFloat } = req.validated;
 
       try {
         // Build MongoDB query from criteria - eliminates loading all items into memory
@@ -415,12 +452,13 @@ async function startServer() {
           .find(query)
           .toArray();
 
+        logger.debug('User matches fetched', { userId: req.userId, count: matchingItems.length });
         res.json(matchingItems);
       } catch (error) {
-        console.error('Error fetching matching items:', error);
+        logger.error('Error fetching matching items', { error: error.message, stack: error.stack, userId: req.userId });
         res.status(500).json({ error: 'Failed to fetch matching items' });
       }
-    });
+    }));
 
     async function checkSnipers(newItems) {
       const snipers = await db.collection('snipers').find().toArray();
@@ -434,7 +472,7 @@ async function startServer() {
             item.float >= sniper.minFloat &&
             item.float <= sniper.maxFloat
           ) {
-            console.log(`Notify user ${sniper.userId} about item ${item.name}`);
+            logger.debug(`Notify user ${sniper.userId} about item ${item.name}`);
           }
         });
       });
@@ -449,10 +487,88 @@ async function startServer() {
       checkSnipers(data);
     };
 
+    // Health check endpoints
+    app.get('/health', (req, res) => {
+      res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+    });
+
+    app.get('/health/ready', asyncHandler(async (req, res) => {
+      try {
+        // Check database connection
+        await db.admin().ping();
+        res.status(200).json({ status: 'ready', database: 'connected' });
+      } catch (error) {
+        logger.error('Readiness check failed', { error: error.message });
+        res.status(503).json({ status: 'not ready', database: 'disconnected' });
+      }
+    }));
+
+    app.get('/health/live', (req, res) => {
+      res.status(200).json({ status: 'alive' });
+    });
+
+    // 404 handler
+    app.use(notFoundHandler);
+
+    // Global error handler (must be last)
+    app.use(errorHandler);
+
+    // Start server
     const port = process.env.API_PORT || 4000;
-    app.listen(port, () => console.log(`Server is running on port ${port}`));
+    server = app.listen(port, () => {
+      logger.info(`Server is running on port ${port}`);
+    });
+
+    // Graceful shutdown handlers
+    const gracefulShutdown = async (signal) => {
+      logger.info(`${signal} received, starting graceful shutdown...`);
+      
+      // Stop accepting new requests
+      server.close(async () => {
+        logger.info('HTTP server closed');
+
+        try {
+          // Stop sniper service
+          await sniperService.stop();
+          logger.info('SniperService stopped');
+
+          // Close database connection
+          if (dbConnection) {
+            await dbConnection.close();
+            logger.info('Database connection closed');
+          }
+
+          logger.info('Graceful shutdown completed');
+          process.exit(0);
+        } catch (error) {
+          logger.error('Error during shutdown', { error: error.message });
+          process.exit(1);
+        }
+      });
+
+      // Force shutdown after 30 seconds
+      setTimeout(() => {
+        logger.error('Forced shutdown after timeout');
+        process.exit(1);
+      }, 30000);
+    };
+
+    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+    process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+    // Handle unhandled promise rejections
+    process.on('unhandledRejection', (reason, promise) => {
+      logger.error('Unhandled Rejection', { reason, promise });
+    });
+
+    // Handle uncaught exceptions
+    process.on('uncaughtException', (error) => {
+      logger.error('Uncaught Exception', { error: error.message, stack: error.stack });
+      gracefulShutdown('uncaughtException');
+    });
+
   } catch (err) {
-    console.error('Server startup error:', err);
+    logger.error('Server startup error', { error: err.message, stack: err.stack });
     process.exit(1);
   }
 }
