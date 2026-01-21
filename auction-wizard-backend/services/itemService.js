@@ -5,6 +5,8 @@ const { MongoClient} = require('mongodb');
 const fs = require('fs');
 const dotenv = require('dotenv');
 const path = require('path');
+const logger = require('../utils/logger');
+const DatabaseConnection = require('../utils/dbConnection');
 
 // Load the .env file
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
@@ -37,7 +39,7 @@ const bestItems = {
 try {
     Object.assign(bestItems, JSON.parse(fs.readFileSync(BEST_ITEMS_FILE)));
 } catch (err) {
-    console.log('No existing best_items file found.');
+    logger.info('No existing best_items file found.');
 }
 
 // Not using this function until prices.json is updated
@@ -94,93 +96,131 @@ async function checkIfItemIsARecord(db, item) {
                 const options = { upsert: true }; // This will insert the document if it does not exist
 
                 await collection.updateOne(filter, update, options);
-                console.log(`Item updated in the database with _id: ${item._id}`);
+                logger.debug(`Item updated in the database with _id: ${item._id}`);
 
                 //This is not an error it just means it is not in the database
 
             } catch (err) {
+                logger.warn(`Error updating item in database`, { error: err.message, itemId: item._id });
             }
         }
     }
 }
 
+// Global variables for connection management
+let dbConnection;
+let db;
+let socket;
+
 // Function to connect to the database
 async function connectDB() {
     try {
-        console.log("Attempting to connect to MongoDB with URI:", uri);
+        logger.info("Attempting to connect to MongoDB");
         
         if (!uri) {
             throw new Error("MONGODB_URI is not defined in environment variables");
         }
 
-        const client = new MongoClient(uri, {
-            useNewUrlParser: true,
-            useUnifiedTopology: true
-        });
-
-        await client.connect();
-        console.log("Successfully connected to MongoDB server");
-
-        const db = client.db('Doris');
-        console.log("Successfully connected to Doris database");
+        // Use DatabaseConnection utility for consistent connection handling
+        dbConnection = new DatabaseConnection(uri, 'Doris');
+        db = await dbConnection.connect();
 
         // Create a new index with the new option
         await db.collection('liveitems').createIndex({ "auto_delete": 1 }, { expireAfterSeconds: 2 });
-        console.log("Successfully created index on liveitems collection");
+        logger.info("Successfully created index on liveitems collection");
         
         return db;
     } catch (err) {
-        console.error("Error connecting to the database:");
-        console.error("Error message:", err.message);
-        console.error("Full error:", err);
+        logger.error("Error connecting to the database", {
+            error: err.message,
+            stack: err.stack
+        });
         return null;
     }
 }
 
 //Function to start code, connect to database and websocket
 async function init() {
-    console.log("Current working directory:", process.cwd());
-    console.log("Starting...");
+    logger.info("Starting itemService", { cwd: process.cwd() });
     
     // Connect to the database
-    const db = await connectDB();
+    db = await connectDB();
     if (!db) {
-        console.error("Error connecting to the database");
-        return;
+        logger.error("Error connecting to the database");
+        process.exit(1);
     }
-    console.log("Connected to the database");
+    logger.info("Connected to the database");
 
     // Clear the live items collection
     await db.collection('liveitems').deleteMany({});
     await db.collection('marketitems').deleteMany({});
-    console.log("Cleared the liveitems collection and marketitems collection");
+    logger.info("Cleared the liveitems collection and marketitems collection");
 
     // Start the websocket connection
-    console.log("Starting websocket connection...");
+    logger.info("Starting websocket connection...");
         
     await WebSocket(db);
+
+    // Graceful shutdown handlers
+    const gracefulShutdown = async (signal) => {
+        logger.info(`${signal} received, starting graceful shutdown...`);
+        
+        try {
+            // Close socket connection
+            if (socket) {
+                socket.disconnect();
+                logger.info('WebSocket disconnected');
+            }
+
+            // Close database connection
+            if (dbConnection) {
+                await dbConnection.close();
+                logger.info('Database connection closed');
+            }
+
+            logger.info('Graceful shutdown completed');
+            process.exit(0);
+        } catch (error) {
+            logger.error('Error during shutdown', { error: error.message });
+            process.exit(1);
+        }
+    };
+
+    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+    process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+    // Handle unhandled promise rejections
+    process.on('unhandledRejection', (reason, promise) => {
+        logger.error('Unhandled Rejection', { reason, promise });
+    });
+
+    // Handle uncaught exceptions
+    process.on('uncaughtException', (error) => {
+        logger.error('Uncaught Exception', { error: error.message, stack: error.stack });
+        gracefulShutdown('uncaughtException');
+    });
 }
 
 // Function to connect to websocket
 async function WebSocket(db) {
-    console.log("Connecting to websocket...");
+    logger.info("Connecting to websocket...");
     let reconnectAttempts = 0;
 
     const reconnect = async () => {
         if (reconnectAttempts >= 10) {
-            console.error('Max reconnection attempts reached');
+            logger.error('Max reconnection attempts reached');
             return;
         }
 
 
         // Exponential backoff with custom delays
         const delay = [5000, 10000, 30000, 60000][reconnectAttempts] || 60000;
-        console.log(`Reconnecting in ${delay / 1000} seconds...`);
+        logger.info(`Reconnecting in ${delay / 1000} seconds...`);
 
 
 
         setTimeout(() => {
-            console.log("Attempting to reconnect...");
+            logger.info("Attempting to reconnect...");
             reconnectAttempts++;
             WebSocket(db); // Recursively reconnecting using WebSocket function
         }, delay);
@@ -190,8 +230,8 @@ async function WebSocket(db) {
         // Get the user data from the socket
         const userData = (await axios.get(`https://${domain}/api/v2/metadata/socket`)).data;
 
-        // Initalize socket connection
-        const socket = io(
+        // Initialize socket connection
+        socket = io(
             socketEndpoint,
             {
                 transports: ["websocket"],
@@ -206,12 +246,12 @@ async function WebSocket(db) {
         socket.on('connect', async () => {
 
             // Log when connected
-            console.log(`Connected to websocket`);
+            logger.info(`Connected to websocket`);
 
             // Handle the Init event
             socket.on('init', (data) => {
                 if (data && data.authenticated) {
-                    console.log(`Successfully authenticated as ${data.name}`);
+                    logger.info(`Successfully authenticated as ${data.name}`);
 
                     // Emit the default filters to ensure we receive events
                     socket.emit('filters', {
@@ -244,10 +284,10 @@ async function WebSocket(db) {
                             }
                         }
                     } catch (err) {
-                        console.error(yellow(`Error inserting or deleting document: ${err}`));
+                        logger.error(`Error inserting or deleting document`, { error: err.message, stack: err.stack });
                     }
                 } else {
-                    console.error('data[1] is not an array');
+                    logger.error('new_item event data is not an array');
                 }
             });
             socket.on('auction_update', async (data) => {
@@ -256,7 +296,7 @@ async function WebSocket(db) {
                         try {
                             // Check if the update has an id
                             if (!update || !update.id) {
-                                console.error('Invalid data received for auction update');
+                                logger.error('Invalid data received for auction update');
                                 break;
                             }
 
@@ -266,11 +306,11 @@ async function WebSocket(db) {
 
 
                         } catch (err) {
-                            console.error(`Error updating document: ${err}`);
+                            logger.error(`Error updating document`, { error: err.message, stack: err.stack });
                         }
                     }
                 } else {
-                    console.error('auction_update event data is not an array');
+                    logger.error('auction_update event data is not an array');
                 }
             });
 
@@ -284,18 +324,18 @@ async function WebSocket(db) {
 
 
                         } catch (err) {
-                            console.error(`Error updating document: ${err}`);
+                            logger.error(`Error updating document`, { error: err.message, stack: err.stack });
                         }
                     }
                 } else {
-                    console.error('updated_item event data is not an array');
+                    logger.error('updated_item event data is not an array');
                 }
             });
 
             socket.on('deleted_item', async (data) => {
                 if (Array.isArray(data)) {
                     try {
-                        console.log(`Attempting to delete ${data.length} items:`, data);
+                        logger.info(`Attempting to delete ${data.length} items`);
                         
                         // Delete from liveitems collection
                         const liveItemsResult = await db.collection('liveitems').deleteMany({
@@ -307,41 +347,41 @@ async function WebSocket(db) {
                             id: { $in: data }
                         });
                         
-                        console.log(`Deletion results:
-                            - Live items deleted: ${liveItemsResult.deletedCount}
-                            - Market items deleted: ${marketItemsResult.deletedCount}
-                            - Total items wanting to be deleted: ${data.length}`);
+                        logger.info(`Deletion results`, {
+                            liveItemsDeleted: liveItemsResult.deletedCount,
+                            marketItemsDeleted: marketItemsResult.deletedCount,
+                            totalRequested: data.length
+                        });
 
                          if (liveItemsResult.deletedCount + marketItemsResult.deletedCount < data.length) {
-                            console.warn('Some items were not found for deletion. This might indicate stale data in the database.');
+                            logger.warn('Some items were not found for deletion. This might indicate stale data in the database.');
                         }
                     } catch (err) {
-                        console.error(`Error during item deletion:`, err);
-                        console.error(`Failed to delete items:`, data);
+                        logger.error(`Error during item deletion`, { error: err.message, stack: err.stack, items: data });
                     }
                 } else {
-                    console.error('deleted_item event data is not an array:', data);
+                    logger.error('deleted_item event data is not an array', { data });
                 }
             });
             
             // Add these listeners to handle reconnection logic
             socket.on("close", (reason) => {
-                console.log(`Socket closed: ${reason}`);
+                logger.warn(`Socket closed`, { reason });
                 reconnect();
             });
 
             socket.on('error', (data) => {
-                console.log(`WS Error: ${data}`);
+                logger.error(`WebSocket error`, { error: data });
                 reconnect();
             });
 
             socket.on('connect_error', (data) => {
-                console.log(`Connect Error: ${data}`);
+                logger.error(`WebSocket connect error`, { error: data });
                 reconnect();
             });
         });
     } catch (e) {
-        console.log(`Error while initializing the WebSocket to Csgoempire. Error: ${e}`);
+        logger.error(`Error while initializing the WebSocket to Csgoempire`, { error: e.message, stack: e.stack });
     }
 };
 
@@ -366,9 +406,11 @@ async function onSocketItemUpdate(updateData, db) {
     };
 
     try {
-        // Check both collections for the item by ID
-        const liveItem = await db.collection('liveitems').findOne({ id });
-        const marketItem = await db.collection('marketitems').findOne({ id });
+        // Check both collections for the item by ID (parallel queries for better performance)
+        const [liveItem, marketItem] = await Promise.all([
+            db.collection('liveitems').findOne({ id }),
+            db.collection('marketitems').findOne({ id })
+        ]);
 
         if (!liveItem && !marketItem) {
             // If item doesn't exist in either collection
@@ -377,12 +419,12 @@ async function onSocketItemUpdate(updateData, db) {
                 item.market_type = "auction";
                 item.auction_ends_at = auction_ends_at;
                 await db.collection('liveitems').insertOne(item);
-                console.log(`Inserted auction item with ID ${id} into liveitems.`);
+                logger.debug(`Inserted auction item with ID ${id} into liveitems.`);
             } else {
                 // Insert into marketitems if it's not an auction item
                 item.market_type = "market";
                 await db.collection('marketitems').insertOne(item);
-                console.log(`Inserted market item with ID ${id} into marketitems.`);
+                logger.debug(`Inserted market item with ID ${id} into marketitems.`);
             }
         } else if (liveItem) {
             // Update liveitems entry if it already exists
@@ -390,17 +432,17 @@ async function onSocketItemUpdate(updateData, db) {
                 { id },
                 { $set: { ...updateData, updatedAt: new Date() } }
             );
-            console.log(`Updated auction item with ID ${id} in liveitems.`);
+            logger.debug(`Updated auction item with ID ${id} in liveitems.`);
         } else if (marketItem) {
             // Update marketitems entry if it already exists
             await db.collection('marketitems').updateOne(
                 { id },
                 { $set: { ...updateData, updatedAt: new Date() } }
             );
-            console.log(`Updated market item with ID ${id} in marketitems.`);
+            logger.debug(`Updated market item with ID ${id} in marketitems.`);
         }
     } catch (error) {
-        console.error(`Error processing item update: ${error.message}`);
+        logger.error(`Error processing item update`, { error: error.message, stack: error.stack, itemId: id });
     }
 }
 
@@ -411,8 +453,8 @@ async function OnSocketNewAuctionItem(items, createdAt, db) {
 
     //Deal with fade items
     if (items.market_name.includes('fade') && items.preview_id !== null) {
-        // Print the 'preview_id' to the console
-        console.log(items.preview_id);
+        // Log the preview_id for fade items
+        logger.debug('Fade item preview_id', { previewId: items.preview_id, itemName: items.market_name });
     }
 
 
@@ -423,7 +465,7 @@ async function OnSocketNewAuctionItem(items, createdAt, db) {
     const expirationTimestampInSeconds = Math.floor(auction_ends_t_unix / 1000); // Convert to Unix timestamp in seconds
 
 
-    console.log(red(`Processing new auction item: ${items.market_name}`));
+    logger.info(`Processing new auction item: ${items.market_name}`);
 
     // Calculate the price of the item
 
@@ -531,7 +573,7 @@ async function onSocketNewAuctionUpdate(updateData, db) {
             { $set: { price: newPrice, profit: newProfit } }
         );
 
-        console.log(`Document ${currentItem.name} updated to new price: ${newPrice} from old price: ${currentItem.price}`);
+        logger.debug(`Document ${currentItem.name} updated to new price: ${newPrice} from old price: ${currentItem.price}`);
     }
 
 
